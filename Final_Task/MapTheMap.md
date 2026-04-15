@@ -20,27 +20,31 @@ Input Images
 
 &#x20;     |
 
-Feature Matching Engine
+Feature detect
 
 &#x20;     |
 
-Similarity Matrix
+Feature Matching (pair wise)
 
 &#x20;     |
 
-Clustering
+Similarity Matrix /Homography
 
 &#x20;     |
 
-Ordered Stitching Engine
+Build graph
 
 &#x20;     |
 
-Final Map
+Ordered Stitching 
 
 &#x20;     |
 
-Road Extraction 
+Final Map ( top down 2D )
+
+&#x20;     |
+
+Road Extraction
 
 &#x20;     |
 
@@ -58,10 +62,6 @@ Final Structure : -
 
 |---	fragments.py
 
-|---	feature\_matching.py
-
-|---	clustering/Grouping.py
-
 |---	stitching.py
 
 |---	segmentation.py
@@ -74,7 +74,7 @@ Final Structure : -
 
 
 
-ORB 
+ORB/SIFT
 
 BFMatcher
 
@@ -86,13 +86,13 @@ Canny Edge
 
 Morphology
 
-Basic Graph 
+Basic Graph
 
 
 
 
 
-Library 
+Library
 
 opencv-python : Everything — features, matching, warping, morphology
 
@@ -110,11 +110,11 @@ Step 1 - Feature extraction
 
 \--------------------------------------------------------------
 
-Every image fragment - detect distinctive keypoints and compute a descriptor (a compact vector). 
+Every image fragment - detect distinctive keypoints and compute a descriptor (a compact vector).
 
 descriptors : let you recognize the same physical location across two different image pieces.
 
-\- ORB (Oriented FAST and Rotated BRIEF) 
+\- ORB (Oriented FAST and Rotated BRIEF)
 
 How FAST corner detection works (intensity circle comparison)
 
@@ -132,17 +132,25 @@ cv2.ORB\_create()
 
 1\. cv2.ORB\_create(
 
-&#x09;nfeatures = 
+&#x09;nfeatures =
 
 &#x09;scaleFactor=
 
-&#x09;nlevels = 
+&#x09;nlevels =
 
 &#x09;edgeThreshold=
 
 &#x09;patchsize =
 
 &#x20;       )
+
+&#x20;  or 
+
+
+
+sift = cv2.SIFT\_create()
+
+
 
 2\. orb.detectAndComputr(gray\_img, None)   # detects keypoint and calculate descriptor
 
@@ -158,7 +166,7 @@ cv2.ORB\_create()
 
 &#x20;  - calculate the cumulative distribution of pixel intensities (CDF) :how pixel intensities are spread
 
-&#x20;  - normalize the CDF so that the pixel values can be mapped to a new range (usually 0-255) : ensure even spread 
+&#x20;  - normalize the CDF so that the pixel values can be mapped to a new range (usually 0-255) : ensure even spread
 
 &#x20;  - Transformation : normalized CDF to map the original pixel values to new ones ( img with improved contrast)
 
@@ -176,8 +184,8 @@ Take descriptors from every pair of images and try to match them. If two images 
 
 
 
-* BFMatcher with Hamming distance (for ORB binary descriptors). 
-* Apply Lowe's ratio test to filter bad matches. 
+* BFMatcher with Hamming distance (for ORB binary descriptors).
+* Apply Lowe's ratio test to filter bad matches.
 * Compute a homography between matched pairs using RANSAC (if RANSAC finds a valid homography with enough inliers, the pair is genuine overlapping fragments.)
 * overlap graph: nodes are images, edges - overlap.
 * Find connected components of this graph using Union-Find or BFS/DFS. (Each connected component is one map group)
@@ -198,17 +206,17 @@ Take descriptors from every pair of images and try to match them. If two images 
 
 1. bf = cv2.BFMatcher(cv2.NORM\_HAMMING, crossCheck=False) #query Brute-Force M , When crossCheck=True, a match between two descriptors is only returned if they are mutually each other's best match.
 
-&#x20;  cv2.NORM\_HAMMING : hamming distance for comparing binary feature descriptors 
+&#x20;  cv2.NORM\_HAMMING : hamming distance for comparing binary feature descriptors
 
 2\. bf.knnMatch(desc1, desc2, k=2)   #k represents the number of closest neighbors to return for each query descriptor and train descriptors
 
 3\.  H, mask = cv2.findHomography(src\_pts, dst\_pts, cv2.RANSAC, 5.0)
 
-(open cv internally considers desc1 and desc2 as 
+(open cv internally considers desc1 and desc2 as
 
-4\. inliers - correct matches that agree with geometry 
+4\. inliers - correct matches that agree with geometry
 
-RANSAC - pick some matches - compute homgraphy - chreck all matches : yes - inlier and no - outliers 
+RANSAC - pick some matches - compute homgraphy - chreck all matches : yes - inlier and no - outliers
 
 
 
@@ -222,21 +230,17 @@ Step 3 — Homography estimation and warping to top-down view
 
 you have images belong together, stitch them by computing the homography between each pair and warping images onto a shared canvas.
 
-* top-down conversion: Aerial/map images are typically already close to top-down, but if there's perspective tilt, you can correct it by computing a homography that maps the image plane to a flat ground plane. 
+* top-down conversion: Aerial/map images are typically already close to top-down, but if there's perspective tilt, you can correct it by computing a homography that maps the image plane to a flat ground plane.
 
 If you have a reference image that looks properly top-down, warp everything to match it.
 
 For the reference frame: pick one image as the "anchor" and compute homographies from every other image relative to it. For longer chains (A→B, B→C), compose homographies: H\_AC = H\_BC @ H\_AB.
 
-What to study:
 
 
-
-The 3×3 homography matrix and how cv2.warpPerspective uses it
-
-How to compute the output canvas size when warping (find where image corners map to)
-
-Bundle adjustment (if you want to go deeper — minimizes accumulated drift across many images)
+* The 3×3 homography matrix and how cv2.warpPerspective uses it
+* How to compute the output canvas size when warping (find where image corners map to)
+* Bundle adjustment (if you want to go deeper — minimizes accumulated drift across many images)
 
 
 
@@ -249,7 +253,7 @@ To stitch two images, you need
 
 
 
-1. Sequencial Stitching - one by one 
+1. Sequencial Stitching - one by one
 
 but each steps adds error - error accumulation.
 
@@ -268,7 +272,7 @@ Image1 - Image2
 Image3 - Image4
 
 * Choose reference image
-* Align everything to reference ( Using BFS ) 
+* Align everything to reference ( Using BFS )
 * Warp all images to same plane
 
 No drift , Works for unordered images, More accurate
@@ -318,7 +322,8 @@ My approach :
 Warping = bending / transforming an image so it aligns with another
 
 
-BFS = breadth first search - starts from a source node and explores the graph level by level ( first adjacent nodes to main nodes and then adjacent to adjacent node ) 
+
+BFS = breadth first search - starts from a source node and explores the graph level by level ( first adjacent nodes to main nodes and then adjacent to adjacent node )
 
 
 
@@ -327,6 +332,10 @@ BFS = breadth first search - starts from a source node and explores the graph le
 Step 4 — Blending
 
 \----------------------------------------------------------------------------------
+
+seams -
+
+blending - 
 
 
 
@@ -360,10 +369,6 @@ Step 5 — Road segmentation
 
 \-------------------------------------------------------------------------------------
 
-What you need to do: Extract roads from the stitched map without any pretrained model. Roads in aerial maps typically have:
-
-
-
 Consistent grayish/asphalt color (but can vary)
 
 Long, thin, connected regions
@@ -374,37 +379,30 @@ Relatively smooth texture compared to surroundings
 
 Classical pipeline:
 
-
-
-Convert to LAB or HSV color space — roads are easier to isolate there
-
-Apply color thresholding for road-colored regions
-
-Use Canny edge detection to find road boundaries
-
-Morphological closing to fill road interiors, opening to remove noise
-
-Filter contours by area, aspect ratio, and elongatedness to keep only road-like shapes
+* Convert to LAB or HSV color space (roads easier to isolate there)
+* Apply color thresholding for road-colored regions
+* Use Canny edge detection to find road boundaries
+* Morphological closing to fill road interiors, opening to remove noise
+* Filter contours by area, aspect ratio, and elongatedness to keep only road-like shapes
 
 The result is a binary road mask
 
 
 
-What to study:
+Research on :
+
+* Morphological operations: erosion, dilation, opening, closing 
+* Canny edge detector: how it uses gradients + non-max suppression + hysteresis
+* Watershed algorithm (useful if roads need to be separated from similar-colored surfaces)
+* Contour analysis: cv2.findContours, bounding rects, aspect ratios
 
 
 
-Morphological operations: erosion, dilation, opening, closing — understand them geometrically, not just as API calls
+i feel pure classical road segmentation is a bit off like results will depend heavily on how the images look.
 
-Canny edge detector: how it uses gradients + non-max suppression + hysteresis
-
-Watershed algorithm (useful if roads need to be separated from similar-colored surfaces)
-
-Contour analysis: cv2.findContours, bounding rects, aspect ratios
+* iteration on the color thresholds.
 
 
-
-Honest caveat: Pure classical road segmentation is hard. Your results will depend heavily on how the images look. Plan for iteration on the color thresholds.
 
 
 
@@ -456,7 +454,7 @@ try : Compute transformed corners \& Expand canvas dynamically
 
 
 
-&#x20;Road Segmentation 
+&#x20;Road Segmentation
 
 Basic:
 
@@ -478,323 +476,71 @@ Morphological closing
 
 
 
-\## SIFT ##
+SURF (Speeded-Up Robust Features) is a high-performance computer vision algorithm used to detect, describe, and match local features (interest points) in images. Developed by Bay et al. in 2006, it was designed as a faster, more efficient alternative to the SIFT (Scale-Invariant Feature Transform) algorithm while maintaining similar robustness to image transformations like rotation, scaling, and brightness changes.
 
+SURF is widely used in real-time applications such as object recognition, image stitching, 3D reconstruction, and tracking.
 
 
-1\. Load image and Convert to Greyscale
-
-
-
-image\_path = " "
-
-
-
-img = cv2.imread(image\_path)
-
-if img is None:
-
-&#x20;   raise IOError("Image not loaded")
-
-
-
-gray = cv2.cvtColor(img, cv2.COLOR\_BGR2GRAY)
-
-
-
-2\.  Create SIFT detector and Detect Keypoints
-
-
-
-sift = cv2.SIFT\_create()
-
-keypoints, descriptors = sift.detectAndCompute(gray, None)
-
-
-
-3\. Draw Keypoints and Visualize the Image
-
-
-
-img\_with\_keypoints = cv2.drawKeypoints(
-
-&#x20;   img, keypoints, None, flags=cv2.DRAW\_MATCHES\_FLAGS\_DRAW\_RICH\_KEYPOINTS
-
-)
-
-
-
-plt.figure(figsize=(12, 8))
-
-plt.imshow(cv2.cvtColor(img\_with\_keypoints, cv2.COLOR\_BGR2RGB))
-
-plt.title("SIFT Keypoints")
-
-plt.axis("off")
-
-plt.show()
-
-
-
-
-
-\## SURF ##
-
-
-
-1\. Convert the training image to RGB
-
-training\_image = cv2.cvtColor(image1, cv2.COLOR\_BGR2RGB)
-
-
-
-2\. Convert the training image to gray scale
-
-training\_gray = cv2.cvtColor(training\_image, cv2.COLOR\_RGB2GRAY)
-
-
-
-3\. Display traning image and testing image
-
-fx, plots = plt.subplots(1, 2, figsize=(20,10))
-
-
-
-plots\[0].set\_title("Training Image")
-
-plots\[0].imshow(training\_image)
-
-
-
-4
-
-surf = cv2.xfeatures2d.SURF\_create(800)
-
-
-
-train\_keypoints, train\_descriptor = surf.detectAndCompute(training\_gray, None)
-
-keypoints\_without\_size = np.copy(training\_image)
-
-keypoints\_with\_size = np.copy(training\_image)
-
-&#x20;
-
-5
-
-cv2.drawKeypoints(training\_image, train\_keypoints, keypoints\_without\_size, color = (0, 255, 0))
-
-
-
-cv2.drawKeypoints(training\_image, train\_keypoints, keypoints\_with\_size, flags = cv2.DRAW\_MATCHES\_FLAGS\_DRAW\_RICH\_KEYPOINTS)
-
-
-
-6 Display image with and without keypoints size
-
-fx, plots = plt.subplots(1, 2, figsize=(20,10))
-
-
-
-plots\[0].set\_title("Train keypoints With Size")
-
-plots\[0].imshow(keypoints\_with\_size, cmap='gray')
-
-
-
-plots\[1].set\_title("Train keypoints Without Size")
-
-plots\[1].imshow(keypoints\_without\_size, cmap='gray')
-
-
-
-7 Print the number of keypoints detected in the training image
-
-print("Number of Keypoints Detected In The Training Image: ", len(train\_keypoints))
-
-
-
-8 Print the number of keypoints detected in the query image
-
-print("Number of Keypoints Detected In The Query Image: ", len(test\_keypoints)
-
-
-
-
-
-\## ORB ##
-
-
-
-1.Loading the Images
-
-
-
-train\_img = cv2.imread('/path')
-
-train\_img\_bw = cv2.cvtColor(train\_img, cv2.COLOR\_BGR2GRAY)
-
-
-
-2\. Detecting Keypoints and Finding Descriptors
-
-
-
-orb = cv2.ORB\_create()
-
-trainKeypoints, trainDescriptors = orb.detectAndCompute(train\_img\_bw, None)
-
-
-
-3\. Matching the Descriptors
-
-
-
-matcher = cv2.BFMatcher()
-
-matches = matcher.match((queryDescriptors), trainDescriptors)
-
-
-
-4\. Visualizing the Matches
-
-
-
-final\_img = cv2.drawMatches(query\_img, queryKeypoints, 
-
-&#x20;                            train\_img, trainKeypoints, matches\[:20], None)
-
-final\_img = cv2.resize(final\_img, (1000, 650))
-
-
-
-plt.figure(figsize=(10, 6))
-
-plt.imshow(cv2.cvtColor(final\_img, cv2.COLOR\_BGR2RGB)) 
-
-plt.title("Feature Matches")
-
-plt.axis('off')  
-
-plt.show()
-
-len(members)} fragments → {\[frag\_files\[m] for m in members]}")
-
-
-
-
-
-
-
-SURF (Speeded-Up Robust Features) is a high-performance computer vision algorithm used to detect, describe, and match local features (interest points) in images. Developed by Bay et al. in 2006, it was designed as a faster, more efficient alternative to the SIFT (Scale-Invariant Feature Transform) algorithm while maintaining similar robustness to image transformations like rotation, scaling, and brightness changes. 
-
-Medium
-
-Medium
-
-&#x20;+3
-
-SURF is widely used in real-time applications such as object recognition, image stitching, 3D reconstruction, and tracking. 
-
-GeeksforGeeks
-
-GeeksforGeeks
-
-&#x20;+1
 
 Key Components of the SURF Algorithm
 
-SURF achieves its speed and robustness through three main stages: 
+SURF achieves its speed and robustness through three main stages:
 
-1\. Interest Point Detection (Fast-Hessian Detector) 
+1\. Interest Point Detection (Fast-Hessian Detector)
 
-Unlike SIFT, which uses Difference of Gaussians (DoG), SURF uses a Hessian matrix-based detector to find keypoints. 
+Unlike SIFT, which uses Difference of Gaussians (DoG), SURF uses a Hessian matrix-based detector to find keypoints.
 
-Medium
 
-Medium
-
-&#x20;+1
 
 Hessian Matrix: It calculates the determinant of the Hessian matrix, which measures local intensity changes to detect blob-like structures (corners or blobs).
 
 Box Filters \& Integral Images: To make this process extremely fast, SURF approximates Gaussian second-order derivatives using simple box filters. The convolution of these box filters with the image can be calculated in parallel and in constant time, regardless of the filter size, using Integral Images (summed-area tables).
 
-Scale Space: Instead of reducing the image size (image pyramid) like SIFT, SURF increases the size of the box filters (e.g., 
+Scale Space: Instead of reducing the image size (image pyramid) like SIFT, SURF increases the size of the box filters (e.g.,) to detect features at different scales.
+
+Non-Maximum Suppression: Potential keypoints are found by looking for local maxima of the Hessian determinant in both the image and scale space.
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-) to detect features at different scales.
-
-Non-Maximum Suppression: Potential keypoints are found by looking for local maxima of the Hessian determinant in both the image and scale space. 
-
-Medium
-
-Medium
-
-&#x20;+3
 
 2\. Orientation Assignment
 
-To ensure rotation invariance, SURF assigns a reproducible orientation to each keypoint. 
+To ensure rotation invariance, SURF assigns a reproducible orientation to each keypoint.
 
-Medium
+Haar Wavelets: SURF computes Haar wavelet responses in
 
-Medium
+&#x20;and
 
-&#x20;+1
-
-Haar Wavelets: SURF computes Haar wavelet responses in 
-
-&#x20;and 
-
-&#x20;directions around the keypoint in a circular neighborhood of radius 
+&#x20;directions around the keypoint in a circular neighborhood of radius
 
 &#x20;(
 
 &#x20;is the scale of the keypoint).
 
-Dominant Orientation: The responses are weighted with a Gaussian, and the sum of responses is calculated using a sliding window of 
+Dominant Orientation: The responses are weighted with a Gaussian, and the sum of responses is calculated using a sliding window of
 
 
 
 &#x20;(60 degrees). The longest, most dominant orientation vector is then assigned to the keypoint.
 
-U-SURF (Upright SURF): If orientation assignment is skipped for speed (useful if images are known to be upright), it is called U-SURF. 
+U-SURF (Upright SURF): If orientation assignment is skipped for speed (useful if images are known to be upright), it is called U-SURF.
 
-Medium
 
-Medium
-
-&#x20;+4
 
 3\. Feature Description
 
-Once a keypoint is located and oriented, a descriptor is created to represent it. 
+Once a keypoint is located and oriented, a descriptor is created to represent it.
 
 Medium
 
 Medium
 
-Region Selection: A square region of size 
+Region Selection: A square region of size
 
 
 
 &#x20;is constructed around the keypoint, oriented along the dominant orientation.
 
-Sub-regions: The region is divided into 
+Sub-regions: The region is divided into
 
 
 
@@ -806,13 +552,13 @@ Wavelet Features: In each sub-region, Haar wavelet responses (
 
 
 
-) are computed at 
+) are computed at
 
 
 
 &#x20;regularly spaced sample points.
 
-64-Dimensional Vector: The responses are summed to form a 4D vector 
+64-Dimensional Vector: The responses are summed to form a 4D vector
 
 
 
@@ -834,7 +580,7 @@ Wavelet Features: In each sub-region, Haar wavelet responses (
 
 
 
-&#x20;for each sub-region. With 
+&#x20;for each sub-region. With
 
 
 
@@ -848,6 +594,39 @@ Robustness: The use of sums of wavelet responses provides robustness against noi
 
 
 
+CHANGES IMPLEMENTING 
+
+\------------------------------------------------------------------
+
+
+
+1. Same pre-processing - gray , equalize hist
+2. Feature extraction - use sift instead of orb
+3. Matching pairs - Ratio test threshold to 0.75 (0.9) and removed fallback strategy
+4. Build Graph ( before homography ) - show graph 
+5. group find - unnecessary codes - remove 
+6. Create components for group         (\*\*\*Community \*\*\*)
+7. see group wise visualization \*\*
+8. Use mst to find order  ( earlier adjacent nodes and neighbors)
+9. homography ( no need to return mask also )      {inliers = int(mask.sum())}
+10. Global\_Homography : 
+11. (Stitch pair : 2 image at a time)( Stitch whole component using order and wrap2img)
+12. warp all images at a time ( into same space )
+13. Find seams - cv2.detail\_GraphCutSeamFinder("COST\_COLOR")
+14. Blending only once - final- MultiBandBlender
+15. crop out black part
+
+
+
+
+
+
+
+
+
+
+
+dfs ?!
 
 
 
@@ -870,57 +649,30 @@ Robustness: The use of sums of wavelet responses provides robustness against noi
 
 
 
-\## just to TRY SURF (not in final pipeline) 
-
-
-
-def extract\_features\_SURF(img) :
-
-&#x20;   img\_bgr = cv2.cvtColor(img, cv2.COLOR\_BGR2RGB)
-
-&#x20;   img\_gray = cv2.cvtColor(img, cv2.COLOR\_RGB2GRAY)
-
-&#x20;   surf  = cv2.xfeatures2d.SURF\_create(800) #800
-
-&#x20;   keypoints, descriptor = surf.detectAndCompute(img\_gray, None)
-
-&#x20;   keypoints\_without\_size = np.copy(img\_gray)
-
-&#x20;   keypoints\_with\_size = np.copy(img\_gray)
-
-&#x20;   cv2.drawKeypoints(img\_gray, keypoints, keypoints\_without\_size, color = (0, 255, 0))
-
-&#x20;   cv2.drawKeypoints(img\_gray, keypoints, keypoints\_with\_size, flags = cv2.DRAW\_MATCHES\_FLAGS\_DRAW\_RICH\_KEYPOINTS)
-
-&#x20;   print("Number of keypoints :", len(keypoints))
-
-
-
-&#x20;   return keypoints, descriptor
 
 
 
 
 
-def show\_keypoints\_SURF(out\_dir, num=6):
-
-&#x20;   files = \[f for f in os.listdir(out\_dir) if f.endswith(".jpg")]
-
-&#x20;   for i in range(min(num, len(files))):
-
-&#x20;       img\_path = os.path.join(out\_dir, files\[i])
-
-&#x20;       frag = cv2.imread(img\_path)
-
-&#x20;       kp, desc = extract\_features\_SURF(frag)
 
 
 
-out\_dir = "DeepGlobe\_Dataset/fragments"
 
-show\_keypoints\_SURF(out\_dir)
 
-&#x20;   
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
