@@ -36,7 +36,7 @@ Build graph
 
 &#x20;     |
 
-Ordered Stitching 
+Ordered Stitching
 
 &#x20;     |
 
@@ -144,7 +144,7 @@ cv2.ORB\_create()
 
 &#x20;       )
 
-&#x20;  or 
+&#x20;  or
 
 
 
@@ -216,7 +216,7 @@ Take descriptors from every pair of images and try to match them. If two images 
 
 4\. inliers - correct matches that agree with geometry
 
-RANSAC - pick some matches - compute homgraphy - chreck all matches : yes - inlier and no - outliers
+RANSAC - pick some matches - compute homgraphy - check all matches : yes - inlier and no - outliers
 
 
 
@@ -331,27 +331,13 @@ BFS = breadth first search - starts from a source node and explores the graph le
 
 Step 4 — Blending
 
-\----------------------------------------------------------------------------------
-
-seams -
-
-blending - 
-
-
-
-What you need to do: Where images overlap after warping, you'll see hard seams if you just paste one on top of the other. Blending smooths this out.
-
-Two approaches:
-
-
+\-----------------------------------------------------------------------------------
 
 Alpha feathering: In the overlap zone, linearly blend pixel values based on distance from each image's center. Simple but good enough for most cases.
 
+
+
 Laplacian pyramid blending: Blend low frequencies gradually, high frequencies sharply. Produces seamless results even with exposure differences.
-
-
-
-What to study:
 
 
 
@@ -363,9 +349,156 @@ Multi-band blending algorithm
 
 
 
+step 5 - Top-Down 2D map
+
+\---------------------------------------------------------------------------------------
+
+1. First see if rectification is needed , cz my dataset already has rectified fragments -> 2D map
 
 
-Step 5 — Road segmentation
+
+2\. Detect the corners /boundary
+
+* Convert image -> mask of “non-black” pixels
+* Find largest connected region (your map)
+* Compute convex hull -> smooth outer boundary  ( sA, aM.A)
+* Approximate that shape to a polygon (4 points) ( ApproxPolyDP - Douglas-Peucker Algo)
+
+epsilon - max allowed distance between original and simplified curve
+
+small epsilon → keep details -> many points
+
+large epsilon → remove details -> fewer points
+
+for any segment in approximation - all points must lie within distance <= epsilon from that segment
+
+instead of using fixed pixels we use percentage of shape size , so it becomes scale invariant -> small obj - small epsilon , large obj - large epsilon
+
+&#x20;beyond 0.1 shape collapses much to triangle / line
+
+DP A-
+
+* Take first and last point - draw a line
+* find point farthest from this line
+* if distance> epsilon - keep that point or else discard intermediate values
+* recursivey apply on segments
+
+
+
+Alternatives :
+
+* PCA -based  oriented bounding box ( principal component analysis)
+
+Steps:
+
+Take all contour points
+
+Compute covariance matrix
+
+Eigenvectors → principal directions
+
+Project points → get min/max → rectangle
+
+Pros
+
+Stable orientation (noise-resistant)
+
+No iterative search
+
+Cons
+
+Still approximates shape as rectangle
+
+Needs implementation (OpenCV doesn’t give full box directly)
+
+
+
+* Hough line detection( geometry - driven)
+
+detect long straight edges , then intersect them
+
+Pros
+
+Works well when edges are visible (roads, borders)
+
+Geometry-based, not contour-based
+
+Cons
+
+Sensitive to noise
+
+Needs grouping logic
+
+Use when: map edges are visually strong lines.
+
+
+
+* RANSAC quad fitting
+
+Randomly sample 4 points and evaluate if they form a good rectangle.
+
+steps:
+
+pick 4 candidate points
+
+compute homography
+
+measure how well points fit edges
+
+repeat (RANSAC)
+
+Pros
+
+Robust to noise/outliers
+
+Doesn’t rely on perfect contour
+
+Cons
+
+More complex
+
+slower than deterministic methods
+
+
+
+* Distance - transform/extreme points
+
+works directly on mask and find distant points
+
+very simple can be unstable if shape not well distributed
+
+
+
+\*\*\*\*\*\*\*\*\*\*\*\*try only minRectVersion\*\*\*\*\*\*\*\*\*\*\*'
+
+If this also fails : fallback -> minimum area rectangle
+
+* rect with min area that encloses all point
+
+
+
+Aspect ratio - we cannot gave fixed values to final rectangle
+
+Output: 4 corner points \& aspect ratio of region4
+
+
+
+3\. Apply homography
+
+I have 4 source points (skewed quadrilateral)-> map them to a perfect rectangle
+
+\-can use a 3×3 transformation matrix (homography)
+
+
+
+* Compute width and height from points
+* Create final rectangle
+* Compute transformation matrix
+* Warp image
+
+
+
+Step 6 — Road segmentation
 
 \-------------------------------------------------------------------------------------
 
@@ -379,11 +512,18 @@ Relatively smooth texture compared to surroundings
 
 Classical pipeline:
 
-* Convert to LAB or HSV color space (roads easier to isolate there)
-* Apply color thresholding for road-colored regions
-* Use Canny edge detection to find road boundaries
+* Preprocessing - resize to fixed scale , CLAHE on L(LAB), Gaussian denoise
+
+( Why normalise lightning across fragments )
+
+* Convert to LAB or HSV color space (roads easier to isolate there) \& Apply color threshold for road-colored regions             -A
+* LBP variance map - roads smooth and low var     - B
+* Use Canny edge detection to find road boundaries   -C
+* pixel = road if (W.A + W.B + W.C) > threshold
 * Morphological closing to fill road interiors, opening to remove noise
 * Filter contours by area, aspect ratio, and elongatedness to keep only road-like shapes
+* Shadow and building removal ( Dark region mask subtract from road mask , buildings - square)
+* Centerline - refinement : Shang-Suen skeleton -> prune spurs -> smooth centerline
 
 The result is a binary road mask
 
@@ -391,16 +531,104 @@ The result is a binary road mask
 
 Research on :
 
-* Morphological operations: erosion, dilation, opening, closing 
+* Morphological operations: erosion, dilation, opening, closing
+
+
+
 * Canny edge detector: how it uses gradients + non-max suppression + hysteresis
+1. Noise reduction : using a 5\*5 Gaussian filter
+
+2\. Finding Intensity gradient of the image : Smoothened image is then filtered with a Sobel kernel in both horizontal and vertical direction to get first derivative in horizontal direction (Gx) and vertical direction (Gy)
+
+&#x20;      Edge\_Gradient (G) = sqt(Gx^2 + Gy^2)Angle(thita) = tan-1(Gy/Gx)
+
+Gradient direction is always perpendicular to edges. It is rounded to one of four angles representing vertical, horizontal and two diagonal directions.
+
+3\. Non-maximum Suppression  :
+
+
+
 * Watershed algorithm (useful if roads need to be separated from similar-colored surfaces)
 * Contour analysis: cv2.findContours, bounding rects, aspect ratios
 
 
 
-i feel pure classical road segmentation is a bit off like results will depend heavily on how the images look.
+Pure classical road segmentation is a bit off like results will depend heavily on how the images look.
 
 * iteration on the color thresholds.
+
+
+
+U-NET Road Segmentation
+
+\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
+
+* upsampling operators instead of pooling operations
+* the network employs a symmetric u-shaped structure
+* large no of feature channels in the upsampling part- extract and utilize rich contextual information, leading to more accurate segmentations.
+* Encoder : captures high level features from input image 
+
+&#x20; -  series of conv -> ReLu actvn fn -> padding(maintain spatial dimensions)
+
+&#x20; - Conv - filters to extract features 
+
+&#x20; - MaxPooling - performed to downsampple the feature map and reduce spatial dimensions.
+
+* Bridge - connects encoder and decoder ( additional conv with relu act)
+
+&#x20;   - preserving spatial information by concatenating the feature maps from the encoder to the corresponding decoder layers.
+
+* Decoder - generates the final segmentation map using the concatenated feature maps from the bridge
+
+&#x20;  - upsampling
+
+&#x20;  -  ends with a convolutional layer with a sigmoid activation function to produce the final segmentation map.
+
+* uses skip connection 
+* multiple feature detectors to create multiple feature maps
+* stride is the number of steps that the feature detector takes while navigating over the input image
+
+
+
+Deconvolution :
+
+\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
+
+* upsampling : insert empty rows and columns between existing elements.
+* convolution : a conv layer applied to unsampled map ( applies a set of learnable filters to feature map - extract features ) 
+* stride : using s >1 during conv layer  - step size while sliding the filters over the input - >1 increases the spatial dimensions of output feature map 
+* &#x20;padding : additional rows and columns of zeros around the input feature map, preserving its size during the convolution operation. 
+* activation fn 
+
+
+
+
+
+
+
+Implementation : 
+
+1. two consecutive conv layer in each block 
+2. left side - contraction - encoder 
+3. right side - expansion - decoder - applies transposed convolutions along with the regular convolutions 
+4. In the Encoder, the input image gradually reduces in size while the depth (number of channels) increases. For example, the image may go from 572x572x3 to 284x284x128
+5. Encoder learns the "WHAT" information in the image, but it loses the "WHERE" information
+6. the size of the image gradually increases, while the depth decreases. For instance, the image may go from 8x8x256 to 128x128x1.
+7. recovers the "WHERE" information by gradually applying up-sampling to obtain precise localization.
+8. o obtain precise localization.
+9. To achieve more accurate localization, skip connections are employed. These connections involve concatenating the output of transposed convolutional layers with the corresponding feature maps from the Encoder:
+- u6 = u6 + c4
+- u7 = u7 + c3
+- u8 = u8 + c2
+- u9 = u9 + c1
+
+&#x20;  After concatenation, two consecutive regular convolutions are applied to refine the output.
+
+
+
+
+
+
 
 
 
@@ -412,13 +640,23 @@ Step 6 \& 7 — Skeleton, graph, and pathfinding (Bonus)
 
 
 
+
+
 Skeletonization: Thin the binary road mask to a 1-pixel-wide centerline using morphological thinning or skimage.morphology.skeletonize. This gives you the "spine" of every road.
 
-Graph extraction: Traverse the skeleton. Pixels with exactly 2 neighbors are just road segments. Pixels with 3+ neighbors are intersections (graph nodes). Pixels with 1 neighbor are dead ends. Build a networkx graph from this.
 
-Shortest path: Once you have the graph, Dijkstra (or A\* with Euclidean heuristic) gives you the shortest road path between any two points. Overlay this path on the stitched map with a colored line.
 
-What to study:
+Graph extraction: Traverse the skeleton. Pixels with exactly 2 neighbors are just road segments. Pixels with 3+ neighbors are intersections (graph nodes). 
+
+Pixels with 1 neighbor are dead ends. 
+
+Build a networkx graph from this.
+
+
+
+Shortest path: Dijkstra or A\* with Euclidean heuristic. Overlay this path on the stitched map with a colored line.
+
+
 
 
 
@@ -426,175 +664,15 @@ Morphological skeletonization (Zhang-Suen thinning algorithm)
 
 Graph representation using networkx or just adjacency dicts
 
-Dijkstra's algorithm and A\* — you already implemented A\* in Task 5, so this is a direct reuse
+Dijkstra's algorithm and A\* 
 
 
 
-cganges that can be done : Image Stitching )
 
-Basic: ORB → match → homography → warp
 
-instead of random stitching:
+CHANGES IMPLEMENTED
 
-Stitch pairwise in order
 
-Maintain canvas growth strategy
-
-EVEN BETTER:
-
-Matches visualization
-
-Intermediate stitching steps
-
-Dynamic canvas size calculation
-
-Most : Hardcode canvas
-
-try : Compute transformed corners \& Expand canvas dynamically
-
-
-
-&#x20;Road Segmentation
-
-Basic:
-
-Canny edge
-
-Threshold
-
-Try using combo:
-
-Color filtering (roads are grayish)
-
-Edge detection
-
-Morphological closing
-
-
-
-
-
-
-
-SURF (Speeded-Up Robust Features) is a high-performance computer vision algorithm used to detect, describe, and match local features (interest points) in images. Developed by Bay et al. in 2006, it was designed as a faster, more efficient alternative to the SIFT (Scale-Invariant Feature Transform) algorithm while maintaining similar robustness to image transformations like rotation, scaling, and brightness changes.
-
-SURF is widely used in real-time applications such as object recognition, image stitching, 3D reconstruction, and tracking.
-
-
-
-Key Components of the SURF Algorithm
-
-SURF achieves its speed and robustness through three main stages:
-
-1\. Interest Point Detection (Fast-Hessian Detector)
-
-Unlike SIFT, which uses Difference of Gaussians (DoG), SURF uses a Hessian matrix-based detector to find keypoints.
-
-
-
-Hessian Matrix: It calculates the determinant of the Hessian matrix, which measures local intensity changes to detect blob-like structures (corners or blobs).
-
-Box Filters \& Integral Images: To make this process extremely fast, SURF approximates Gaussian second-order derivatives using simple box filters. The convolution of these box filters with the image can be calculated in parallel and in constant time, regardless of the filter size, using Integral Images (summed-area tables).
-
-Scale Space: Instead of reducing the image size (image pyramid) like SIFT, SURF increases the size of the box filters (e.g.,) to detect features at different scales.
-
-Non-Maximum Suppression: Potential keypoints are found by looking for local maxima of the Hessian determinant in both the image and scale space.
-
-
-
-2\. Orientation Assignment
-
-To ensure rotation invariance, SURF assigns a reproducible orientation to each keypoint.
-
-Haar Wavelets: SURF computes Haar wavelet responses in
-
-&#x20;and
-
-&#x20;directions around the keypoint in a circular neighborhood of radius
-
-&#x20;(
-
-&#x20;is the scale of the keypoint).
-
-Dominant Orientation: The responses are weighted with a Gaussian, and the sum of responses is calculated using a sliding window of
-
-
-
-&#x20;(60 degrees). The longest, most dominant orientation vector is then assigned to the keypoint.
-
-U-SURF (Upright SURF): If orientation assignment is skipped for speed (useful if images are known to be upright), it is called U-SURF.
-
-
-
-3\. Feature Description
-
-Once a keypoint is located and oriented, a descriptor is created to represent it.
-
-Medium
-
-Medium
-
-Region Selection: A square region of size
-
-
-
-&#x20;is constructed around the keypoint, oriented along the dominant orientation.
-
-Sub-regions: The region is divided into
-
-
-
-&#x20;sub-regions.
-
-Wavelet Features: In each sub-region, Haar wavelet responses (
-
-
-
-
-
-) are computed at
-
-
-
-&#x20;regularly spaced sample points.
-
-64-Dimensional Vector: The responses are summed to form a 4D vector
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-&#x20;for each sub-region. With
-
-
-
-&#x20;sub-regions, this results in a final 64-dimensional feature descriptor.
-
-Robustness: The use of sums of wavelet responses provides robustness against noise, illumination changes, and geometric distortions
-
-
-
-
-
-
-
-CHANGES IMPLEMENTING 
 
 \------------------------------------------------------------------
 
@@ -603,13 +681,13 @@ CHANGES IMPLEMENTING
 1. Same pre-processing - gray , equalize hist
 2. Feature extraction - use sift instead of orb
 3. Matching pairs - Ratio test threshold to 0.75 (0.9) and removed fallback strategy
-4. Build Graph ( before homography ) - show graph 
-5. group find - unnecessary codes - remove 
+4. Build Graph ( before homography ) - show graph
+5. group find - unnecessary codes - remove
 6. Create components for group         (\*\*\*Community \*\*\*)
 7. see group wise visualization \*\*
 8. Use mst to find order  ( earlier adjacent nodes and neighbors)
 9. homography ( no need to return mask also )      {inliers = int(mask.sum())}
-10. Global\_Homography : 
+10. Global\_Homography :
 11. (Stitch pair : 2 image at a time)( Stitch whole component using order and wrap2img)
 12. warp all images at a time ( into same space )
 13. Find seams - cv2.detail\_GraphCutSeamFinder("COST\_COLOR")
@@ -620,55 +698,7 @@ CHANGES IMPLEMENTING
 
 
 
-
-
-
-
-
-
-dfs ?!
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+dfs 
 
 
 
